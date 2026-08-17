@@ -1,110 +1,169 @@
 // ---------------------------------------------------------------------------
-// API de Tareas (CRUD) — Node.js + Express
-// Aprende los métodos HTTP: GET, POST, PUT, DELETE
+// Backend de Tareas — Node.js + Express + Supabase (PostgreSQL)
+//
+// Contiene dos tipos de operaciones:
+//   1) CRUD sobre la base de datos (GET / POST / PUT / DELETE).
+//   2) "Operaciones internas": lógica del servidor sobre esos datos
+//      (estadísticas, acciones en lote) que no son un simple CRUD.
 // ---------------------------------------------------------------------------
 
 const express = require("express");
+const supabase = require("./supabaseClient");
 
 const app = express();
-
-// Middleware: permite leer JSON del cuerpo (body) de las peticiones POST/PUT.
 app.use(express.json());
 
-// ---------------------------------------------------------------------------
-// "Base de datos" en memoria.
-// Ojo: al reiniciar el servidor se pierde. Sirve para aprender; más adelante
-// lo cambias por una base de datos real (SQLite, Postgres, MongoDB...).
-// ---------------------------------------------------------------------------
-let tareas = [
-  { id: 1, titulo: "Aprender HTTP", completada: false },
-  { id: 2, titulo: "Crear mi primera API", completada: true },
-];
-let siguienteId = 3;
+// Nombre de la tabla en Supabase.
+const TABLA = "tareas";
 
 // ---------------------------------------------------------------------------
-// Rutas
+// Info de la API.
 // ---------------------------------------------------------------------------
-
-// Ruta de bienvenida / salud del servidor.
 app.get("/", (req, res) => {
   res.json({
-    mensaje: "API de Tareas funcionando 🚀",
+    mensaje: "Backend de Tareas con Supabase 🚀",
     endpoints: {
       listar: "GET /tareas",
       obtener: "GET /tareas/:id",
       crear: "POST /tareas",
       actualizar: "PUT /tareas/:id",
       borrar: "DELETE /tareas/:id",
+      estadisticas: "GET /tareas/estadisticas (operación interna)",
+      completarTodas: "POST /tareas/completar-todas (operación interna)",
     },
   });
 });
 
-// GET /tareas — devuelve todas las tareas.
-app.get("/tareas", (req, res) => {
-  res.json(tareas);
+// ===========================================================================
+// OPERACIONES INTERNAS
+// Van ANTES de las rutas con /:id para que Express no confunda
+// "estadisticas" con un id.
+// ===========================================================================
+
+// GET /tareas/estadisticas — calcula un resumen en el servidor.
+app.get("/tareas/estadisticas", async (req, res) => {
+  const { data, error } = await supabase.from(TABLA).select("completada");
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  const total = data.length;
+  const completadas = data.filter((t) => t.completada).length;
+  const pendientes = total - completadas;
+  const porcentaje = total === 0 ? 0 : Math.round((completadas / total) * 100);
+
+  res.json({ total, completadas, pendientes, porcentajeCompletado: porcentaje });
 });
 
-// GET /tareas/:id — devuelve una tarea por su id.
-app.get("/tareas/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const tarea = tareas.find((t) => t.id === id);
+// POST /tareas/completar-todas — marca todas las pendientes como completadas.
+app.post("/tareas/completar-todas", async (req, res) => {
+  const { data, error } = await supabase
+    .from(TABLA)
+    .update({ completada: true })
+    .eq("completada", false)
+    .select();
 
-  if (!tarea) {
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ mensaje: "Tareas actualizadas", actualizadas: data.length });
+});
+
+// ===========================================================================
+// CRUD
+// ===========================================================================
+
+// GET /tareas — lista todas.
+app.get("/tareas", async (req, res) => {
+  const { data, error } = await supabase
+    .from(TABLA)
+    .select("*")
+    .order("id", { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET /tareas/:id — una tarea por id.
+app.get("/tareas/:id", async (req, res) => {
+  const { data, error } = await supabase
+    .from(TABLA)
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+
+  // PGRST116 = no encontró filas.
+  if (error && error.code === "PGRST116") {
     return res.status(404).json({ error: "Tarea no encontrada" });
   }
-  res.json(tarea);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
 
-// POST /tareas — crea una tarea nueva.
-// Body esperado: { "titulo": "texto" }
-app.post("/tareas", (req, res) => {
+// POST /tareas — crea una.  Body: { "titulo": "..." }
+app.post("/tareas", async (req, res) => {
   const { titulo } = req.body;
 
   if (!titulo || titulo.trim() === "") {
     return res.status(400).json({ error: "El campo 'titulo' es obligatorio" });
   }
 
-  const nueva = { id: siguienteId++, titulo, completada: false };
-  tareas.push(nueva);
+  const { data, error } = await supabase
+    .from(TABLA)
+    .insert({ titulo })
+    .select()
+    .single();
 
-  // 201 = creado correctamente.
-  res.status(201).json(nueva);
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json(data);
 });
 
-// PUT /tareas/:id — actualiza una tarea existente.
-// Body opcional: { "titulo": "...", "completada": true/false }
-app.put("/tareas/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const tarea = tareas.find((t) => t.id === id);
-
-  if (!tarea) {
-    return res.status(404).json({ error: "Tarea no encontrada" });
-  }
-
+// PUT /tareas/:id — actualiza.  Body: { "titulo"?, "completada"? }
+app.put("/tareas/:id", async (req, res) => {
   const { titulo, completada } = req.body;
-  if (titulo !== undefined) tarea.titulo = titulo;
-  if (completada !== undefined) tarea.completada = completada;
 
-  res.json(tarea);
-});
+  const cambios = {};
+  if (titulo !== undefined) cambios.titulo = titulo;
+  if (completada !== undefined) cambios.completada = completada;
 
-// DELETE /tareas/:id — borra una tarea.
-app.delete("/tareas/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const indice = tareas.findIndex((t) => t.id === id);
-
-  if (indice === -1) {
-    return res.status(404).json({ error: "Tarea no encontrada" });
+  if (Object.keys(cambios).length === 0) {
+    return res.status(400).json({ error: "Nada que actualizar" });
   }
 
-  const [borrada] = tareas.splice(indice, 1);
-  res.json({ mensaje: "Tarea borrada", tarea: borrada });
+  const { data, error } = await supabase
+    .from(TABLA)
+    .update(cambios)
+    .eq("id", req.params.id)
+    .select()
+    .single();
+
+  if (error && error.code === "PGRST116") {
+    return res.status(404).json({ error: "Tarea no encontrada" });
+  }
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE /tareas/:id — borra.
+app.delete("/tareas/:id", async (req, res) => {
+  const { data, error } = await supabase
+    .from(TABLA)
+    .delete()
+    .eq("id", req.params.id)
+    .select()
+    .single();
+
+  if (error && error.code === "PGRST116") {
+    return res.status(404).json({ error: "Tarea no encontrada" });
+  }
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ mensaje: "Tarea borrada", tarea: data });
 });
 
 // ---------------------------------------------------------------------------
-// Arranque del servidor.
-// process.env.PORT lo asigna el proveedor (Render, Railway...) automáticamente.
-// En local usará el 3000.
+// Arranque.
 // ---------------------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

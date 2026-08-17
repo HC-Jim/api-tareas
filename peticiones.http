@@ -32,3 +32,9 @@ Content-Type: application/json
 
 ### 6) Borrar una tarea
 DELETE {{url}}/tareas/2
+
+### 7) Estadísticas (operación interna: cálculo en el servidor)
+GET {{url}}/tareas/estadisticas
+
+### 8) Completar todas las pendientes (operación interna: acción en lote)
+POST {{url}}/tareas/completar-todas
