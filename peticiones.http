@@ -1,0 +1,34 @@
+### API de Tareas — ejemplos de peticiones HTTP
+### Si usas VS Code, instala la extensión "REST Client" y pulsa
+### "Send Request" sobre cada bloque. También puedes copiarlas a Postman.
+### Cambia la URL base por la de Render cuando despliegues.
+
+@url = http://localhost:3000
+
+### 1) Ver info de la API
+GET {{url}}/
+
+### 2) Listar todas las tareas
+GET {{url}}/tareas
+
+### 3) Obtener una tarea por id
+GET {{url}}/tareas/1
+
+### 4) Crear una tarea nueva
+POST {{url}}/tareas
+Content-Type: application/json
+
+{
+  "titulo": "Desplegar en Render"
+}
+
+### 5) Actualizar una tarea (marcar como completada)
+PUT {{url}}/tareas/1
+Content-Type: application/json
+
+{
+  "completada": true
+}
+
+### 6) Borrar una tarea
+DELETE {{url}}/tareas/2

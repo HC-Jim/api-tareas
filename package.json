@@ -1,0 +1,17 @@
+{
+  "name": "api-tareas",
+  "version": "1.0.0",
+  "description": "API REST de tareas (CRUD) con Node.js y Express para aprender",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
